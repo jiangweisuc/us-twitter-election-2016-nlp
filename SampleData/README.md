@@ -1,7 +1,7 @@
 # Sample Twitter Data
 
 Header: lang|text|created_at      
-Text file is tab separated...      
+Text file is pipe separated...      
 
 Original tweets were collected in json format using [Tweepy Streaming](http://docs.tweepy.org/en/v3.4.0/streaming_how_to.html).      
 
