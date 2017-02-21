@@ -23,7 +23,6 @@ around the Election Day.
 
 Data Collection
 ---
-
 Prior to the Election Day, I wrote a pretty standard Python module based on
 the [Tweepy](http://docs.tweepy.org/en/v3.5.0/) library.
 I started data collection on Nov 7 around 3 pm and stopped the
@@ -48,7 +47,7 @@ Preprocessing Steps Tweets
 
 A tweet text has max. 140 characters and there are a multitude of decisions to be made in terms of preprocessing
 before each tweet is formalized enough for mathematical modeling.
-I came up with the following steps (see ```PreprocessTweets.py```):
+I came up with the following steps (see [PreprocessTweets.py](TwitterElection/PreprocessTweets.py)):
 
 1. Removing several characters, such as @-mentions, #-mentions, 'RT', everything following an apostrophe,
  some custom characters such as numbers/special characters (e.g.: ?!.,&<') or URLs via regex matching.
@@ -61,7 +60,7 @@ I came up with the following steps (see ```PreprocessTweets.py```):
 6. Lastly stemming words using nltk's [SnowballStemmer](http://www.nltk.org/_modules/nltk/stem/snowball.html).
 
 
-More details on how I handled above steps can be found in the source code (see ```PreprocessTweets.py```).
+More details on how I handled above steps can be found in the source code (see [PreprocessTweets.py](TwitterElection/PreprocessTweets.py)).
 Below is a random test tweet I fabricated to debug the code. You can see the results of the preprocessing
 procedures. There are certainly pros and cons for my approach and
 I really believe it's an artwork at the end. Also some cases are not fully accounted for, e.g. '🇺🇸' emoji got split
@@ -85,7 +84,7 @@ space where semantically similar words are mapped to nearby points
  [Tensorflow word2vec](https://www.tensorflow.org/tutorials/word2vec/) explains the background extremely well, highly recommend
  reading their documentation as I am not going into further details here!
  As opposed to Tensorflow, I wanted to explore [gensim word2vec](https://radimrehurek.com/gensim/models/word2vec.html) here in this project
-(see ```Embedding.py```).
+(see [Embedding.py](TwitterElection/Embedding.py)).
 
 Following parameters were set:
 
@@ -111,7 +110,7 @@ Length of Word2Vec Vocabulary:  14202
 Dimension of embedding (max_vocab_size x dim): (14202, 200)
 ```
 
-The next step is to transform the same 5370247 tweets using this model (see ```Embedding.py```). For
+The next step is to transform the same 5370247 tweets using this model (see [Embedding.py](TwitterElection/Embedding.py)). For
 each tweet each token will be compared with the model vocabulary and if the token is contained within the
 vocabulary the respective vector will be extracted, otherwise a vector of zeros with the same size 200 will be "extracted".
 Then as a simple approach the average of all of the tokens of one tweet was taken. The final feature matrix X
@@ -129,14 +128,119 @@ Similarity Hillary and Trump 0.369136993042
 Classification
 ---
 
-Instead of performing a classic sentiment analysis, I labeled each tweet as hillary(encoded as int 0), trump(encoded as int 1) or neutral (encoded as int 2)
-based on whether # and @ mentions of the respective tweet were dominated by either Trump or Hillary or neither (see ```PreprocessTweets.py```).
-This approach resembles a topic classification, however, given the nature of the U.S. Presidential Election it
-may be flawed and not helpful in this context.
+Instead of performing a classic sentiment analysis, I labeled each tweet as hillary (encoded as int 0), trump (encoded as int 1) or neutral (encoded as int 2)
+based on whether # and @ mentions of the respective tweet were dominated by tags pointing to either Trump or Hillary. If none was the case the neutral label got assigned (see [PreprocessTweets.py](TwitterElection/PreprocessTweets.py)).
+This approach resembles a topic classification. Note that all # and @ mentions were removed after labeling the respective tweet in the course of
+preprocessing the tweet, so they were not words used as features.
 
-Let's see if ensemble classifiers will be able to identify distinguishing features that can
-associate a tweet with either Hillary or Trump. Note that all # and @ mentions were removed in the course of
-preprocessing the tweets.
+For the classification task, solely tweets labeled as hillary or clinton were used. Note that tweets about trump were much (!) more frequent.
+To have a balanced and manageable data set, I selected only a subset of labeled tweets with an even amount of samples for each of the two labels.
+[TopicModel.py](TwitterElection/TopicModel.py) contains a class that wraps around the complete machine learning classification task. Main steps in bullet points:
+
+Input data (feature matrix X and target vector) for topic classification:
+
+- The feature matrix X (numpy nd-array: samples x features, here (157982, 200)) was derived using the embedding model ([Word2vec Embedding](#word2vec-embedding)). 200 was the chosen embedding dimension.
+- The target vector containing the label for each sample is a numpy 1d-vector of shape (samples,), here (157982,)
+
+Machine Learning procedures (train, optimize and predict):
+
+- 3-fold cross-validation was done using sklearn's [model_selection.StratifiedShuffleSplit](http://scikit-learn.org/stable/modules/generated/sklearn.model_selection.StratifiedShuffleSplit.html).
+- Selected best model from the following three models: [NaiveBayesClassifier](http://scikit-learn.org/stable/modules/generated/sklearn.naive_bayes.GaussianNB.html), [RandomForestClassifier](http://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html), [AdaBoostClassifier](http://scikit-learn.org/stable/modules/generated/sklearn.ensemble.AdaBoostClassifier.html).
+- As first step parameters for each of these three models were optimized using the less computationally expensive [model_selection.RandomizedSearchCV](http://scikit-learn.org/stable/modules/generated/sklearn.model_selection.RandomizedSearchCV.html) from the sklearn library.
+To further optimize this step a custom scorer [metrics.make_scorer](http://scikit-learn.org/stable/modules/generated/sklearn.metrics.make_scorer.html) that maximizes the minimum of precision and recall was used instead of accuracy as performance metric.
+- When looping over the three classifiers (clfs) using their *best* parameters, metrics were stored to finally derive a Confidence Interval (CI) for each of the classifiers. If lower and upper ends of two classifiers don't overlap the models are said to be significantly different from one another.
+- Accuracy on the validation set was used to determine final model performance.
+
+Output of [main_TwitterElection_classification.py](TwitterElection/main_TwitterElection_classification.py):
+
+```
+Total number of tweets: 5370247
+Total number of filtered and labeled tweets: 157982
+Shapes of X and target:  (157982, 200) (157982,)
+Parameter Search...
+Parameter Search of... RandomForestClassifier(bootstrap=True, class_weight=None, criterion='gini',
+            max_depth=None, max_features='auto', max_leaf_nodes=None,
+            min_impurity_split=1e-07, min_samples_leaf=1,
+            min_samples_split=2, min_weight_fraction_leaf=0.0,
+            n_estimators=10, n_jobs=1, oob_score=False, random_state=42,
+            verbose=0, warm_start=False)
+Parameter Search of... AdaBoostClassifier(algorithm='SAMME.R', base_estimator=None,
+          learning_rate=1.0, n_estimators=50, random_state=None)
+Best Estimators:  [GaussianNB(priors=None), RandomForestClassifier(bootstrap=False, class_weight=None,
+            criterion='entropy', max_depth=1, max_features=2,
+            max_leaf_nodes=None, min_impurity_split=1e-07,
+            min_samples_leaf=9, min_samples_split=6,
+            min_weight_fraction_leaf=0.0, n_estimators=31, n_jobs=1,
+            oob_score=False, random_state=42, verbose=0, warm_start=False), AdaBoostClassifier(algorithm='SAMME.R', base_estimator=None,
+          learning_rate=0.8, n_estimators=100, random_state=None)]
+
+Cross-Validation using following Classifier:
+
+GaussianNB(priors=None)
+
+
+accuracy     0.671588
+precision    0.682339
+recall       0.671588
+f1_score     0.666677
+dtype: float64
+Confidence Interval (CI) Accuracy: (0.66781321431938101, 0.67536298135630035)
+
+Cross-Validation using following Classifier:
+
+RandomForestClassifier(bootstrap=False, class_weight=None,
+            criterion='entropy', max_depth=1, max_features=2,
+            max_leaf_nodes=None, min_impurity_split=1e-07,
+            min_samples_leaf=9, min_samples_split=6,
+            min_weight_fraction_leaf=0.0, n_estimators=31, n_jobs=1,
+            oob_score=False, random_state=42, verbose=0, warm_start=False)
+
+
+accuracy     0.647788
+precision    0.656927
+recall       0.647788
+f1_score     0.642584
+dtype: float64
+Confidence Interval (CI) Accuracy: (0.64072072917132639, 0.65485525762045982)
+
+Cross-Validation using following Classifier:
+
+AdaBoostClassifier(algorithm='SAMME.R', base_estimator=None,
+          learning_rate=0.8, n_estimators=100, random_state=None)
+
+
+accuracy     0.731352
+precision    0.732381
+recall       0.731352
+f1_score     0.731054
+dtype: float64
+Confidence Interval (CI) Accuracy: (0.72825247897875744, 0.73445172349092558)
+```
+
+### Visualizations
+
+All Classifiers ROC curves
+
+<img src="output/all_clfs_roc_curve.png" width="400">
+
+All Classifiers Confusion Matrix
+
+<img src="output/all_clfs_confusion_matrix.png" width="800">
+
+### Best Classifier AdaBoost Confusion Matrix in large:
+
+<img src="output/AdaBoostClassifier_confusion_matrix.png" width="400">
+
+
+### Conclusion Machine Learning Topic Classification
+
+- AdaBoost showed best accuracy on validation data set.
+- Preprocessing and word2vec embedding dimensions are parameters that have been left out to further fine-tune.
+- About 73% accuracy doesn't sound too impressive, but it appears that humans as well only agree about 70% of the time on topics auch as sentiment analysis, which is similar to the topic modeling approach used here (see [wikipedia sentiment analysis](https://en.wikipedia.org/wiki/Sentiment_analysis)).
+- Only a subset of all data could be processed in a reasonable time on the local computer.
+- All metrics (aka precision, recall and accuracy) were similar, pointing out that there were no misleading high false positives and false negatives hidden by a higher accuracy score.
+- It appears that the word embedding aka features were better predictors of tweets about trump. One reason for this could have been that the original data set (all tweets) was used to train the word2vec embedding model and that data set was somewhat unbalanced in that in general more tweets were referencing trump.
+
 
 Deep Learning
 ---
