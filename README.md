@@ -151,7 +151,7 @@ To further optimize this step a custom scorer [metrics.make_scorer](http://sciki
 - When looping over the three classifiers (clfs) using their *best* parameters, metrics were stored to finally derive a Confidence Interval (CI) for each of the classifiers. If lower and upper ends of two classifiers don't overlap the models are said to be significantly different from one another.
 - Accuracy on the validation set was used to determine final model performance.
 
-Output of [main_TwitterElection_classification.py](TwitterElection/main_TwitterElection_classification.py):
+Output of [main_TwitterElection_classification.py](main_TwitterElection_classification.py):
 
 ```
 Total number of tweets: 5370247
